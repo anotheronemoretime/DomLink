@@ -7,6 +7,7 @@ import sys
 import os.path
 import urllib.request, urllib.parse, urllib.error
 import logging
+from datetime import datetime
 
 
 __version__ = '0.2'
@@ -27,7 +28,7 @@ def set_log_level(args_level):
 
 def get_args():
     parser = ArgumentParser()
-    parser.add_argument('domain', help='Domain to perform DomLink Discovery on')
+    parser.add_argument('domain', nargs='?', help='Domain to perform DomLink Discovery on')
     parser.add_argument('-o', '--output', help='Output file')
     parser.add_argument('-A', '--api', help='https://www.whoxy.com API key')
     parser.add_argument('-v', '--verbose', action='count')
@@ -37,6 +38,8 @@ def get_args():
             help='recursively search emails')
     parser.add_argument('-D', '--domains', action='store_true',
             help='recursively search domains')
+    parser.add_argument('-B', '--balance', action='store_true',
+            help='show balance information')
     return parser.parse_args()
 
 
@@ -75,7 +78,7 @@ def check_balance(base_url):
     else:
         logging.error('WHOIS lookup failed, {}'.format(content['status_reason']))
         exit()
-    return mode
+    return mode, content
 
 def parse_whois(base_url, domain):
     logging.info('Performing WHOIS lookup on {}'.format(domain))
@@ -198,11 +201,26 @@ def main():
     blacklist = {'domains': set(), 'emails': set(), 'companies': set()}
     base_url = 'https://api.whoxy.com/?key={}'.format(api_key)
 
+    balance, balance_content = check_balance(base_url)
+    
+    if args.balance:
+        print("\nBalance Information:")
+        print("-------------------")
+        print(f"Live WHOIS Balance: {balance_content['live_whois_balance']}")
+        print(f"WHOIS History Balance: {balance_content['whois_history_balance']}")
+        print(f"Reverse WHOIS Balance: {balance_content['reverse_whois_balance']}")
+        print("-------------------\n")
+        if not args.domain:
+            exit()
+
+    if not args.domain:
+        logging.error('Domain argument is required when not using -B option')
+        exit()
+
     if '.' not in args.domain:
         logging.error('It\'s probably unlikely that the target is a whole TLD')
         exit()
 
-    balance = check_balance(base_url)
     if (balance['lookup']):
         results = parse_whois(base_url, args.domain)
     if (balance['history']):
@@ -272,9 +290,14 @@ def main():
             '\n'.join(
                 [k for k in list(results['emails'].keys()) if k not in blacklist['emails']]))
     print(output)
-    if args.output:
-        with open(args.output, 'w') as text_file:
-            text_file.write(output)
+    
+    # Generate default output filename if none provided
+    if not args.output:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        args.output = f"{args.domain}_{timestamp}.txt"
+    
+    with open(args.output, 'w') as text_file:
+        text_file.write(output)
 
 
 if __name__ == '__main__':
